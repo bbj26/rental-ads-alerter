@@ -44,11 +44,13 @@ def fetch_data():
 
         # Check if the content contains the specified message
         if "You are attempting to access Njuskalo using an anonymous private/proxy network" in content:
+            print("Access denied. Please check your network settings.")
             raise FetchDataError("Access denied. Please check your network settings.")
-        
+
         return content
 
     except requests.exceptions.RequestException as e:
+        print("Failed to fetch data", e)
         raise FetchDataError(f"Failed to fetch data. {e}")
 
 def save_ads_to_file(ads, file_path):
@@ -164,9 +166,11 @@ def send_notification(new_ads):
 
             # Send the email
             server.sendmail(outlook_email, receiver_emails, message.as_string())
+            print("Notification email sent successfully!")
             logger.info("Notification email sent successfully!")
 
         except Exception as e:
+            print("Error sending email: %s", e)
             logger.error("Error sending email: %s", e)
 
         finally:
@@ -178,6 +182,7 @@ def main():
     while True:
         try:
             logger.info("Checking for new ads at %s...", datetime.now())
+            print("Checking for new ads at %s...", datetime.now())
             html_content = fetch_data()
             if html_content:
                 current_ads = extract_ads(html_content)
