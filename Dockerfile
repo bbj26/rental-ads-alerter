@@ -4,6 +4,8 @@ WORKDIR /app
 
 COPY . .
 
+RUN mkdir dist
+
 RUN pip install --no-cache-dir -r requirements.txt
 
 CMD ["sh", "start.sh"]
