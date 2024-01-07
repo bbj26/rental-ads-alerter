@@ -1,6 +1,5 @@
 import requests
 from bs4 import BeautifulSoup
-import time
 from datetime import datetime
 import json
 from dotenv import load_dotenv
@@ -9,7 +8,10 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
 import logging
-
+from flask import Flask
+import schedule
+import threading
+import time
 # Load environment variables from .env file
 load_dotenv()
 
@@ -26,14 +28,23 @@ previous_ads_file = "previous_ads.json"
 current_ads_file = "current_ads.json"
 
 # Configurable sleep interval in seconds
-sleep_interval = int(os.getenv("SLEEP_INTERVAL", 1200))  # Default to 20 minutes
+sleep_interval = int(os.getenv("SLEEP_INTERVAL", 900)
+                     )  # Default to 15 minutes
 
 # Logging configuration
-logging.basicConfig(filename='scraper.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(filename='scraper.log', level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Flask app
+app = Flask(__name__)
+
+# Exception to be raised when data fetching fails
+
 
 class FetchDataError(Exception):
     pass
+
 
 def fetch_data():
     try:
@@ -45,7 +56,8 @@ def fetch_data():
         # Check if the content contains the specified message
         if "You are attempting to access Njuskalo using an anonymous private/proxy network" in content:
             print("Access denied. Please check your network settings.")
-            raise FetchDataError("Access denied. Please check your network settings.")
+            raise FetchDataError(
+                "Access denied. Please check your network settings.")
 
         return content
 
@@ -53,9 +65,11 @@ def fetch_data():
         print("Failed to fetch data", e)
         raise FetchDataError(f"Failed to fetch data. {e}")
 
+
 def save_ads_to_file(ads, file_path):
     with open(file_path, "w", encoding="utf-8") as file:
         json.dump(ads, file, ensure_ascii=False, indent=2)
+
 
 def load_ads_from_file(file_path):
     try:
@@ -67,6 +81,7 @@ def load_ads_from_file(file_path):
     except json.decoder.JSONDecodeError:
         return []
 
+
 def extract_ads(html_content):
     soup = BeautifulSoup(html_content, "html.parser")
 
@@ -75,10 +90,11 @@ def extract_ads(html_content):
 
     for ad_item in ad_items:
         ad_details = {}
-        
+
         # Extracting title, description, location, size, price, and link
         title_element = ad_item.find("h3", class_="entity-title")
-        description_element = ad_item.find("div", class_="entity-description-main")
+        description_element = ad_item.find(
+            "div", class_="entity-description-main")
         price_element = ad_item.find("strong", class_="price--hrk")
         link_element = ad_item.find("a", class_="link")
 
@@ -91,23 +107,28 @@ def extract_ads(html_content):
             # Extracting location from the description
             location_start = description_text.find("Lokacija:")
             if location_start != -1:
-                location_text = description_text[location_start + len("Lokacija:"):].strip()
+                location_text = description_text[location_start +
+                                                 len("Lokacija:"):].strip()
                 ad_details['3. location'] = location_text
 
                 # Remove redundant information from description
-                ad_details['5. description'] = description_text.replace(f"Lokacija: {location_text}", "").strip()
+                ad_details['5. description'] = description_text.replace(
+                    f"Lokacija: {location_text}", "").strip()
 
             # Extracting size from the description
             size_start = description_text.find("Stambena površina:")
             if size_start != -1:
-                size_text = description_text[size_start + len("Stambena površina:"):].split('\n')[0].strip()
+                size_text = description_text[size_start +
+                                             len("Stambena površina:"):].split('\n')[0].strip()
                 ad_details['2. size'] = size_text
 
         if price_element:
-            ad_details['4. price'] = price_element.text.replace('\xa0', '').strip()
+            ad_details['4. price'] = price_element.text.replace(
+                '\xa0', '').strip()
 
         if link_element:
-            ad_details['6. link'] = "https://www.njuskalo.hr" + link_element['href']
+            ad_details['6. link'] = "https://www.njuskalo.hr" + \
+                link_element['href']
 
         ads.append(ad_details)
 
@@ -116,9 +137,11 @@ def extract_ads(html_content):
 
     return ads
 
+
 def check_for_new_ads(previous_ads, current_ads):
     new_ads = [ad for ad in current_ads if ad not in previous_ads]
     return new_ads
+
 
 def send_notification(new_ads):
     if new_ads:
@@ -127,7 +150,7 @@ def send_notification(new_ads):
         receiver_emails = os.getenv("RECEIVER_EMAILS").split(",")
 
         subject = "New Ads Found from Njuskalo"
-        
+
         # Set up the HTML body
         body = "<html><body>"
         body += "<h2>New Ads Found:</h2>"
@@ -135,7 +158,7 @@ def send_notification(new_ads):
         for ad in new_ads:
             body += "<article style='margin-bottom: 20px; padding: 10px; border: 1px solid #ccc;'>"
             body += "<h3>{}</h3>".format(ad.get('1. title', ''))
-            
+
             # Display other details in a table
             body += "<table>"
             for key, value in ad.items():
@@ -165,7 +188,8 @@ def send_notification(new_ads):
             server.login(outlook_email, outlook_password)
 
             # Send the email
-            server.sendmail(outlook_email, receiver_emails, message.as_string())
+            server.sendmail(outlook_email, receiver_emails,
+                            message.as_string())
             print("Notification email sent successfully!")
             logger.info("Notification email sent successfully!")
 
@@ -176,29 +200,55 @@ def send_notification(new_ads):
         finally:
             # Disconnect from the server
             server.quit()
+    else:
+        print("No new ads at this time. Will check again in 20 minutes")
+        logger.info("No new ads at this time. Will check again in 20 minutes")
 
 
-def main():
+def scrape():
+    try:
+        logger.info("Checking for new ads at %s...", datetime.now())
+        print("Checking for new ads at %s...", datetime.now())
+        html_content = fetch_data()
+        if html_content:
+            current_ads = extract_ads(html_content)
+            previous_ads = load_ads_from_file(previous_ads_file)
+            new_ads = check_for_new_ads(previous_ads, current_ads)
+            send_notification(new_ads)
+            save_ads_to_file(current_ads, previous_ads_file)
+
+    except FetchDataError as e:
+        logger.error(str(e))
+
+    except Exception as e:
+        logger.exception("An unexpected error occurred: %s", e)
+
+# Flask route to trigger scraping
+
+
+@app.route('/scrape')
+def run_scraper():
+    scrape()
+    return "Scraping initiated."
+
+
+# Schedule scraping every 15 minutes
+schedule.every(15).minutes.do(scrape)
+
+# Function to run the scheduled tasks in a separate thread
+
+
+def run_scheduler():
     while True:
-        try:
-            logger.info("Checking for new ads at %s...", datetime.now())
-            print("Checking for new ads at %s...", datetime.now())
-            html_content = fetch_data()
-            if html_content:
-                current_ads = extract_ads(html_content)
-                previous_ads = load_ads_from_file(previous_ads_file)
-                new_ads = check_for_new_ads(previous_ads, current_ads)
-                send_notification(new_ads)
-                save_ads_to_file(current_ads, previous_ads_file)
+        schedule.run_pending()
+        time.sleep(1)
 
-        except FetchDataError as e:
-            logger.error(str(e))
-
-        except Exception as e:
-            logger.exception("An unexpected error occurred: %s", e)
-
-        finally:
-            time.sleep(sleep_interval)
 
 if __name__ == "__main__":
-    main()
+    # Start the Flask app in a separate thread
+    flask_thread = threading.Thread(
+        target=app.run, kwargs={'debug': True, 'use_reloader': False})
+    flask_thread.start()
+
+    # Start the scheduler in the main thread
+    run_scheduler()
