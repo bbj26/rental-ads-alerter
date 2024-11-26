@@ -12,11 +12,28 @@ from flask import Flask
 import schedule
 import threading
 import time
+
 # Load environment variables from .env file
 load_dotenv()
 
+# Logging configuration
+logging.basicConfig(
+    filename='scraper.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Console logging
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
+
 # URL of the website you want to scrape
 url = os.getenv("NJUSKALO_URL")
+logger.info("Using URL: %s", url)
 
 # Headers to mimic a real browser request
 headers = {
@@ -28,61 +45,62 @@ previous_ads_file = "previous_ads.json"
 current_ads_file = "current_ads.json"
 
 # Configurable sleep interval in seconds
-sleep_interval = int(os.getenv("SLEEP_INTERVAL", 900)
-                     )  # Default to 15 minutes
-
-# Logging configuration
-logging.basicConfig(filename='scraper.log', level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+sleep_interval = int(os.getenv("SLEEP_INTERVAL", 900))
+logger.info("Configured sleep interval: %d seconds", sleep_interval)
 
 # Flask app
 app = Flask(__name__)
 
-# Exception to be raised when data fetching fails
-
 
 class FetchDataError(Exception):
+    """Exception raised for errors in data fetching."""
     pass
 
 
 def fetch_data():
+    logger.info("Fetching data from URL...")
     try:
         response = requests.get(url, headers=headers)
-        response.raise_for_status()  # Raise an HTTPError for bad responses (4xx or 5xx)
+        response.raise_for_status()
+        logger.info("Data fetched successfully.")
 
         content = response.text
 
-        # Check if the content contains the specified message
         if "You are attempting to access Njuskalo using an anonymous private/proxy network" in content:
-            print("Access denied. Please check your network settings.")
+            logger.error("Access denied due to proxy or network restrictions.")
             raise FetchDataError(
                 "Access denied. Please check your network settings.")
 
         return content
 
     except requests.exceptions.RequestException as e:
-        print("Failed to fetch data", e)
+        logger.error("Failed to fetch data: %s", e)
         raise FetchDataError(f"Failed to fetch data. {e}")
 
 
 def save_ads_to_file(ads, file_path):
+    logger.info("Saving ads to file: %s", file_path)
     with open(file_path, "w", encoding="utf-8") as file:
         json.dump(ads, file, ensure_ascii=False, indent=2)
+    logger.info("Ads saved successfully.")
 
 
 def load_ads_from_file(file_path):
+    logger.info("Loading ads from file: %s", file_path)
     try:
         with open(file_path, "r", encoding="utf-8") as file:
             data = file.read()
             return json.loads(data) if data else []
     except FileNotFoundError:
+        logger.warning("File not found: %s. Returning empty list.", file_path)
         return []
     except json.decoder.JSONDecodeError:
+        logger.error("Error decoding JSON from file: %s", file_path)
         return []
 
 
 def extract_ads(html_content):
+    logger.info("Extracting ads from HTML content...")
     soup = BeautifulSoup(html_content, "html.parser")
 
     ads = []
@@ -93,8 +111,7 @@ def extract_ads(html_content):
 
         # Extracting title, description, location, size, price, and link
         title_element = ad_item.find("h3", class_="entity-title")
-        description_element = ad_item.find(
-            "div", class_="entity-description-main")
+        description_element = ad_item.find("div", class_="entity-description-main")
         price_element = ad_item.find("strong", class_="price--hrk")
         link_element = ad_item.find("a", class_="link")
 
@@ -103,43 +120,36 @@ def extract_ads(html_content):
 
         if description_element:
             description_text = description_element.text.strip()
-
-            # Extracting location from the description
             location_start = description_text.find("Lokacija:")
             if location_start != -1:
-                location_text = description_text[location_start +
-                                                 len("Lokacija:"):].strip()
+                location_text = description_text[location_start + len("Lokacija:"):].strip()
                 ad_details['3. location'] = location_text
-
-                # Remove redundant information from description
                 ad_details['5. description'] = description_text.replace(
                     f"Lokacija: {location_text}", "").strip()
 
-            # Extracting size from the description
             size_start = description_text.find("Stambena površina:")
             if size_start != -1:
-                size_text = description_text[size_start +
-                                             len("Stambena površina:"):].split('\n')[0].strip()
+                size_text = description_text[size_start + len("Stambena površina:"):].split('\n')[0].strip()
                 ad_details['2. size'] = size_text
 
         if price_element:
-            ad_details['4. price'] = price_element.text.replace(
-                '\xa0', '').strip()
+            ad_details['4. price'] = price_element.text.replace('\xa0', '').strip()
 
         if link_element:
-            ad_details['6. link'] = "https://www.njuskalo.hr" + \
-                link_element['href']
+            ad_details['6. link'] = "https://www.njuskalo.hr" + link_element['href']
 
         ads.append(ad_details)
 
-    # Save current ads to file
     save_ads_to_file(ads, current_ads_file)
+    logger.info("Extracted %d ads.", len(ads))
 
     return ads
 
 
 def check_for_new_ads(previous_ads, current_ads):
+    logger.info("Checking for new ads...")
     new_ads = [ad for ad in current_ads if ad not in previous_ads]
+    logger.info("Found %d new ads.", len(new_ads))
     return new_ads
 
 
@@ -206,9 +216,8 @@ def send_notification(new_ads):
 
 
 def scrape():
+    logger.info("Starting scrape process...")
     try:
-        logger.info("Checking for new ads at %s...", datetime.now())
-        print("Checking for new ads at %s...", datetime.now())
         html_content = fetch_data()
         if html_content:
             current_ads = extract_ads(html_content)
@@ -223,8 +232,6 @@ def scrape():
     except Exception as e:
         logger.exception("An unexpected error occurred: %s", e)
 
-# Flask route to trigger scraping
-
 
 @app.route('/scrape')
 def run_scraper():
@@ -232,10 +239,7 @@ def run_scraper():
     return "Scraping initiated."
 
 
-# Schedule scraping every 15 minutes
 schedule.every(15).minutes.do(scrape)
-
-# Function to run the scheduled tasks in a separate thread
 
 
 def run_scheduler():
@@ -245,10 +249,10 @@ def run_scheduler():
 
 
 if __name__ == "__main__":
-    # Start the Flask app in a separate thread
-    flask_thread = threading.Thread(
-        target=app.run, kwargs={'debug': True, 'use_reloader': False})
+    logger.info("Running initial scrape...")
+    scrape()
+    
+    flask_thread = threading.Thread(target=app.run, kwargs={'debug': True, 'use_reloader': False})
     flask_thread.start()
 
-    # Start the scheduler in the main thread
     run_scheduler()
