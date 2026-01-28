@@ -37,8 +37,24 @@ logger.info("Using URL: %s", url)
 
 # Headers to mimic a real browser request
 headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    "Accept-Language": "en-US,en;q=0.9,hr;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "DNT": "1",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Cache-Control": "max-age=0",
+    "Referer": "https://www.njuskalo.hr/"
 }
+
+# Create a session to maintain cookies
+session = requests.Session()
+session.headers.update(headers)
 
 # File paths
 previous_ads_file = "previous_ads.json"
@@ -60,7 +76,11 @@ class FetchDataError(Exception):
 def fetch_data():
     logger.info("Fetching data from URL...")
     try:
-        response = requests.get(url, headers=headers)
+        # Add a small delay to appear more human-like
+        time.sleep(1)
+        
+        # Use session to maintain cookies and headers
+        response = session.get(url, timeout=30)
         response.raise_for_status()
         logger.info("Data fetched successfully.")
 
