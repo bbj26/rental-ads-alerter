@@ -54,7 +54,7 @@ session.headers.update(BROWSER_HEADERS)
 
 PREVIOUS_ADS_FILE = "previous_ads.json"
 CURRENT_ADS_FILE = "current_ads.json"
-sleep_interval = int(os.getenv("SLEEP_INTERVAL", 900))
+sleep_interval = int(os.getenv("SLEEP_INTERVAL", 15*60))
 logger.info("Configured sleep interval: %d seconds", sleep_interval)
 
 
@@ -266,3 +266,7 @@ def scrape():
 if __name__ == "__main__":
     logger.info("Running initial scrape...")
     scrape()
+    while True:
+        logger.info("Sleeping %d seconds until next run.", sleep_interval)
+        time.sleep(sleep_interval)
+        scrape()
